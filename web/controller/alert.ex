@@ -25,18 +25,29 @@ defmodule IotIntern.Controller.Alert do
   use Antikythera.Controller
 
   alias Antikythera.Conn
-  # 必要に応じて適宜エイリアスのコメントアウトを解除してください
-  # alias IotIntern.Error
-  # alias IotIntern.Linkit
+  alias IotIntern.{Linkit, Error}
 
-  # アトリビュートのMapの中は好きに変更して構いません．
-  # @alert_messages %{
-  #   "dead_battery" => "バッテリー不足",
-  #   "derailment"   => "脱輪",
-  #   "jamming"      => "異物混入"
-  # }
+  defmodule RequestBody do
+    use Croma
 
-  def post_alert(%{request: %{body: _body}} = conn) do
-    Conn.json(conn, 200, %{})
+    defmodule Message do
+      use Croma.SubtypeOfAtom, values: [:dead_battery, :derailment, :jamming]
+    end
+
+    use Croma.Struct, recursive_new?: true, fields: [
+      message: Message,
+    ]
+  end
+
+  def post_alert(%{request: %{body: body}} = conn) do
+    case RequestBody.new(body) do
+      {:ok,    %{message: message} = validated_body} ->
+        case Linkit.post_message(message) do
+          {201, nil} -> Conn.json(conn, 201, validated_body)
+          _          -> Conn.json(conn, 500, Error.linkit_error())
+        end
+      {:error, _}              ->
+        Conn.json(conn, 400, Error.bad_request_error())
+    end
   end
 end
